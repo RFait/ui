@@ -238,6 +238,11 @@ export const ScheduleMedia = gql(`
       status,
       id
     }
+    bannerImage,
+    coverImage { extraLarge, large, medium },
+    format,
+    duration,
+    episodes,
     aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) {
       n: nodes {
         a: airingAt,

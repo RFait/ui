@@ -18,21 +18,26 @@
   import { authAggregator, list } from '$lib/modules/auth'
   import { dragScroll } from '$lib/modules/navigate'
   import { cn, breakpoints } from '$lib/utils'
+  import ThreeDayView from './ThreeDayView.svelte'
+  import DayDetailPane from './DayDetailPane.svelte'
 
   const onList = persisted('schedule-on-list', true)
+  const viewMode = persisted<'three-day' | 'month'>('schedule-view-mode', 'three-day')
 
   $: query = authAggregator.schedule($onList)
 
+  // Month grid state (existing view)
   let now = new Date()
-  $: monthName = now.toLocaleString('en-US', { month: 'long' })
 
   $: firstDay = startOfWeek(startOfMonth(now), { weekStartsOn: 1 })
   $: lastDay = endOfWeek(endOfMonth(now), { weekStartsOn: 1 })
   function prevMonth () {
     now = subMonths(now, 1)
+    selectedDate = subMonths(selectedDate, 1)
   }
   function nextMonth () {
     now = addMonths(now, 1)
+    selectedDate = addMonths(selectedDate, 1)
   }
 
   function listDays (firstDay: Date, lastDay: Date) {
@@ -52,7 +57,10 @@
   function aggregate (data: ResultOf<typeof Schedule>, dayList: Array<{ date: Date, number: number }>) {
     // join media from all queries into single list, de-duplicate it, and make sure it's not dropped
     const mediaList = [...data.curr1?.media ?? [], ...data.curr2?.media ?? [], ...data.curr3?.media ?? [], ...data.residue?.media ?? [], ...data.next1?.media ?? [], ...data.next2?.media ?? []]
-      .filter((v, i, a) => v != null && a.findIndex(s => s?.id === v.id) === i && list(v) !== 'DROPPED') as Array<ResultOf<typeof ScheduleMedia>>
+      .filter((v, i, a) => v != null
+        && a.findIndex(s => s?.id === v.id) === i
+        && list(v) !== 'DROPPED'
+        && (!$onList || (v as any)?.mediaListEntry)) as Array<ResultOf<typeof ScheduleMedia>>
 
     const dayMap: Record<string, DayAirTimes | undefined> = Object.fromEntries(dayList.map(day => [+day.date, { day, episodes: [] }]))
 
@@ -67,7 +75,7 @@
       }
     }
 
-    for (const { episodes } of Object.values(dayMap)as DayAirTimes[]) {
+    for (const { episodes } of Object.values(dayMap) as DayAirTimes[]) {
       episodes.sort((a, b) => +a.airTime - +b.airTime)
     }
 
@@ -76,65 +84,168 @@
 
   // very stupid fix, for a very stupid bug
   const _list = list
+
+  // Three-day view state
+  let selectedDate = new Date()
+  function midnight (d: Date) {
+    const x = new Date(d)
+    x.setHours(0, 0, 0, 0)
+    return x
+  }
+  function prevDay () { selectedDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() - 1) }
+  function nextDay () { selectedDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1) }
+  function goToday () { selectedDate = new Date() }
+
+  function cycleViewMode() {
+    $viewMode = $viewMode === 'three-day' ? 'month' : 'three-day'
+  }
+
+  type EpisodeItem = ResultOf<typeof ScheduleMedia> & { episode: number, airTime: Date }
+
+  function groupByDay (data: ResultOf<typeof Schedule> | undefined) {
+    const map: Record<string, { date: Date, episodes: EpisodeItem[] }> = {}
+    if (!data) return map
+
+    const mediaList = [
+      ...data.curr1?.media ?? [],
+      ...data.curr2?.media ?? [],
+      ...data.curr3?.media ?? [],
+      ...data.residue?.media ?? [],
+      ...data.next1?.media ?? [],
+      ...data.next2?.media ?? []
+    ].filter((v, i, a) => v != null
+      && a.findIndex(s => s?.id === v.id) === i
+      && list(v as ResultOf<typeof ScheduleMedia>) !== 'DROPPED'
+      && (!$onList || (v as any)?.mediaListEntry)) as Array<ResultOf<typeof ScheduleMedia>>
+
+    for (const media of mediaList) {
+      const episodes = dedupeAiring(media)
+      for (const { a: airingAt, e: episode } of episodes) {
+        const dt = new Date(airingAt * 1000)
+        const key = +midnight(dt)
+        if (!map[key]) map[key] = { date: midnight(dt), episodes: [] }
+        map[key].episodes.push({ ...media, episode, airTime: dt })
+      }
+    }
+    for (const day of Object.values(map)) day.episodes.sort((a, b) => +a.airTime - +b.airTime)
+    return map
+  }
+
+  $: grouped = groupByDay($query.data)
+  $: prevDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() - 1)
+  $: nextDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1)
+  $: prevEpisodes = grouped[+midnight(prevDate)]?.episodes ?? []
+  $: currentEpisodes = grouped[+midnight(selectedDate)]?.episodes ?? []
+  $: nextEpisodes = grouped[+midnight(nextDate)]?.episodes ?? []
+
+  let selectedEpisode: EpisodeItem | undefined
+  let highlightUntil = 0
+  let highlightTimer: any
+
+  function highlightEpisode(ep: EpisodeItem) {
+    selectedEpisode = ep
+    selectedDate = midnight(ep.airTime)
+    if (highlightTimer) clearTimeout(highlightTimer)
+    highlightUntil = Date.now() + 3000
+    highlightTimer = setTimeout(() => { highlightUntil = 0 }, 3000)
+  }
 </script>
 
-<div class='flex flex-col items-center w-full h-full overflow-y-auto p-3 md:p-10 min-w-0' use:dragScroll>
-  <div class='space-y-0.5 self-start mb-6'>
-    <h2 class='text-2xl font-bold'>Airing Calendar</h2>
-    <p class='text-muted-foreground'>
-      View upcoming episodes and their air times for the current season.
-    </p>
-  </div>
-  <div class='grid grid-cols-7 border rounded-lg [&>*:not(:nth-child(7n+1)):nth-child(n+8)]:border-r [&>*:nth-last-child(n+8)]:border-b [&>*:nth-child(-n+8)]:border-b w-full max-w-[1800px]'>
-    <div class='col-span-full flex justify-between items-center p-4'>
-      <Button size='icon' on:click={prevMonth} variant='outline' class='bg-transparent animated-icon'>
-        <ChevronLeft class='h-6 w-6' />
-      </Button>
-      <div class='text-center font-bold text-xl'>
-        {monthName}
-        <div class='self-start flex items-center space-x-2 mt-1 text-muted-foreground'>
-          <Switch bind:checked={$onList} id='schedule-on-list' hideState={true} />
-          <Label for='schedule-on-list'>My list</Label>
-        </div>
+<div class='w-full h-full overflow-y-auto p-2 md:p-6 min-w-0' use:dragScroll style='scrollbar-gutter: stable both-edges;'>
+  <div class='space-y-2 mb-4 w-full max-w-none px-2 md:px-4 mx-auto'>
+    <div class='flex items-center justify-between'>
+      <div>
+        <h2 class='text-2xl font-bold'>Airing Calendar</h2>
+        <p class='text-muted-foreground'>Find what’s airing now and next.</p>
       </div>
-      <Button size='icon' on:click={nextMonth} variant='outline' class='bg-transparent animated-icon'>
-        <ChevronRight class='h-6 w-6' />
-      </Button>
+      <!-- View mode buttons moved to the main title bar below -->
     </div>
-    <div class='text-center py-2'>Mon</div>
-    <div class='text-center py-2'>Tue</div>
-    <div class='text-center py-2'>Wed</div>
-    <div class='text-center py-2'>Thu</div>
-    <div class='text-center py-2'>Fri</div>
-    <div class='text-center py-2'>Sat</div>
-    <div class='text-center py-2'>Sun</div>
-    {#if $query.fetching}
-      {#each dayList as { date, number } (date)}
-        {@const sameMonth = isSameMonth(now, date)}
-        <div>
-          <div class='flex flex-col text-xs py-3 h-24 lg:h-48' class:opacity-30={!sameMonth}>
-            <div class={cn('w-6 h-6 flex items-center justify-center font-bold mx-3', isToday(date) && 'bg-[rgb(61,180,242)] rounded-full')}>
-              {number}
-            </div>
-          </div>
+
+    <!-- Title bar:-->
+    <div class='grid items-center w-full grid-cols-[1fr_auto_1fr]'>
+      <!-- My list -->
+      <div class='flex items-center gap-1 text-muted-foreground justify-self-start'>
+        <Switch bind:checked={$onList} id='schedule-on-list' hideState={true} />
+        <Label for='schedule-on-list'>My list</Label>
+      </div>
+
+      <!--  Day and Month container-->
+      <div class='justify-self-center flex items-center gap-1.5'>
+        <!-- Day prev-->
+        <Button size='icon' on:click={prevDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
+          <ChevronLeft class='h-5 w-5' />
+        </Button>
+        <!-- Month prev -->
+        <Button size='icon' on:click={prevMonth} variant='outline' class='bg-transparent animated-icon h-9 w-9'>
+          <ChevronLeft class='h-6 w-6' />
+        </Button>
+        <!-- Month and Day-->
+        <div class='text-xl font-semibold px-1'>
+          {format(selectedDate, 'MMMM, EEEE do')}{selectedDate.getFullYear() !== new Date().getFullYear() ? ` ${format(selectedDate, 'yyyy')}` : ''}
         </div>
-      {/each}
-    {:else if $query.error}
-      <div class='p-5 flex items-center justify-center h-96 col-span-full'>
-        <div>
-          <div class='mb-1 font-bold text-4xl text-center '>
-            Ooops!
-          </div>
-          <div class='text-lg text-center text-muted-foreground'>
-            Looks like something went wrong!
-          </div>
-          <div class='text-lg text-center text-muted-foreground'>
-            {$query.error.message}
-          </div>
+        <!-- Month next -->
+        <Button size='icon' on:click={nextMonth} variant='outline' class='bg-transparent animated-icon h-9 w-9'>
+          <ChevronRight class='h-6 w-6' />
+        </Button>
+        <!-- Day next -->
+        <Button size='icon' on:click={nextDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
+          <ChevronRight class='h-5 w-5' />
+        </Button>
+        <!-- Today button -->
+        <Button class='ml-2' size='sm' variant='outline' on:click={goToday}>Today</Button>
+      </div>
+
+      <!-- View mode toggle -->
+      <div class='flex items-center justify-self-end'>
+        <Button size='sm' variant='outline' class='w-[96px] justify-center' on:click={cycleViewMode}>
+          {$viewMode === 'three-day' ? 'Three-day' : 'Month'}
+        </Button>
+      </div>
+    </div>
+  </div>
+
+  {#if $query.fetching}
+    <div class='p-5 flex items-center justify-center h-96 w-full max-w-[1800px]'>Loading…</div>
+  {:else if $query.error}
+    <div class='p-5 flex items-center justify-center h-96 w-full max-w-[1800px]'>
+      <div>
+        <div class='mb-1 font-bold text-4xl text-center '>
+          Ooops!
+        </div>
+        <div class='text-lg text-center text-muted-foreground'>
+          Looks like something went wrong!
+        </div>
+        <div class='text-lg text-center text-muted-foreground'>
+          {$query.error.message}
         </div>
       </div>
-    {:else if $query.data?.curr1?.media}
-      {#each aggregate($query.data, dayList) as { day, episodes } (day.date)}
+    </div>
+  {:else}
+    {#if $viewMode === 'three-day'}
+      <div class='grid w-full gap-4 mx-auto' style='grid-template-columns: 1fr 1fr;'>
+        <ThreeDayView
+          {prevDate}
+          currentDate={selectedDate}
+          {nextDate}
+          {prevEpisodes}
+          {currentEpisodes}
+          {nextEpisodes}
+          onSelectDate={(d) => selectedDate = d}
+          onSelectEpisode={highlightEpisode}
+        />
+        <DayDetailPane episodes={currentEpisodes} {selectedEpisode} {highlightUntil} onSelectEpisode={(ep) => selectedEpisode = ep} />
+      </div>
+    {:else if $viewMode === 'month'}
+      <div class='grid grid-cols-7 border rounded-lg [&>*:not(:nth-child(7n+1))]:border-l [&>*:nth-last-child(n+8)]:border-b [&>*:nth-child(-n+7)]:border-b w-full mx-auto'>
+        <div class='text-center py-2'>Mon</div>
+        <div class='text-center py-2'>Tue</div>
+        <div class='text-center py-2'>Wed</div>
+        <div class='text-center py-2'>Thu</div>
+        <div class='text-center py-2'>Fri</div>
+        <div class='text-center py-2'>Sat</div>
+        <div class='text-center py-2'>Sun</div>
+        {#if $query.data?.curr1?.media}
+        {#each aggregate($query.data, dayList) as { day, episodes } (day.date)}
         {@const sameMonth = isSameMonth(now, day.date)}
         <div>
           <div class='flex flex-col text-xs py-3 h-24 lg:h-48' class:opacity-30={!sameMonth}>
@@ -161,7 +272,7 @@
                     {#each episodes as episode, i (i)}
                       {@const status = _list(episode)}
                       <ButtonPrimitive.Root class={cn('flex items-center h-4 w-full group mt-1.5 px-3', +episode.airTime < Date.now() && 'opacity-30')} href='/app/anime/{episode.id}'>
-                        <div class='font-medium text-nowrap text-ellipsis overflow-hidden pr-2' title={episode.title?.userPreferred}>
+                        <div class={cn('font-medium text-nowrap text-ellipsis overflow-hidden pr-2', +episode.airTime < Date.now() && 'line-through')} title={episode.title?.userPreferred}>
                           {#if status}
                             <StatusDot variant={status} class='hidden' />
                           {/if}
@@ -182,7 +293,7 @@
                 {#each episodes.length > 6 ? episodes.slice(0, 5) : episodes as episode, i (i)}
                   {@const status = _list(episode)}
                   <ButtonPrimitive.Root class={cn('flex items-center h-4 w-full group mt-1.5 px-3', +episode.airTime < Date.now() && 'opacity-30')} href='/app/anime/{episode.id}'>
-                    <div class='font-medium text-nowrap text-ellipsis overflow-hidden pr-2' title={episode.title?.userPreferred}>
+                    <div class={cn('font-medium text-nowrap text-ellipsis overflow-hidden pr-2', +episode.airTime < Date.now() && 'line-through')} title={episode.title?.userPreferred}>
                       {#if status}
                         <StatusDot variant={status} class='hidden xl:inline-flex' />
                       {/if}
@@ -201,7 +312,7 @@
                       {#each episodes.slice(5) as episode, i (i)}
                         {@const status = _list(episode)}
                         <ButtonPrimitive.Root class={cn('flex items-center h-4 w-full group', +episode.airTime < Date.now() && 'text-neutral-300')} href='/app/anime/{episode.id}'>
-                          <div class='font-medium text-nowrap text-ellipsis overflow-hidden pr-2' title={episode.title?.userPreferred}>
+                          <div class={cn('font-medium text-nowrap text-ellipsis overflow-hidden pr-2', +episode.airTime < Date.now() && 'line-through')} title={episode.title?.userPreferred}>
                             {#if status}
                               <StatusDot variant={status} class='hidden xl:inline-flex' />
                             {/if}
@@ -218,18 +329,20 @@
             {/if}
           </div>
         </div>
-      {/each}
-    {:else}
-      {#each dayList as { date, number } (date)}
-        {@const sameMonth = isSameMonth(now, date)}
-        <div>
-          <div class='flex flex-col text-xs py-3 h-48' class:opacity-30={!sameMonth}>
-            <div class={cn('w-6 h-6 flex items-center justify-center font-bold mx-3', isToday(date) && 'bg-[rgb(61,180,242)] rounded-full')}>
-              {number}
+        {/each}
+        {:else}
+        {#each dayList as { date, number } (date)}
+          {@const sameMonth = isSameMonth(now, date)}
+          <div>
+            <div class='flex flex-col text-xs py-3 h-48' class:opacity-30={!sameMonth}>
+              <div class={cn('w-6 h-6 flex items-center justify-center font-bold mx-3', isToday(date) && 'bg-[rgb(61,180,242)] rounded-full')}>
+                {number}
+              </div>
             </div>
           </div>
-        </div>
-      {/each}
+        {/each}
+        {/if}
+      </div>
     {/if}
-  </div>
+  {/if}
 </div>
