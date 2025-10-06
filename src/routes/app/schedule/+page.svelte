@@ -26,7 +26,7 @@
   const onList = persisted('schedule-on-list', true)
   const viewMode = persisted<'three-day' | 'month'>('schedule-view-mode', 'three-day')
 
-  $: query = authAggregator.schedule($onList)
+  $: query = authAggregator.schedule($onList || null)
 
   // Month grid state (existing view)
   let now = new Date()
@@ -394,7 +394,7 @@
                     <Tooltip.Content sameWidth={true} class='text-center gap-1.5'>
                       {#each episodes.slice(5) as episode, i (i)}
                         {@const status = _list(episode)}
-                        <ButtonPrimitive.Root class={cn('flex items-center h-4 w-full group', +episode.airTime < Date.now() && 'text-neutral-300')} href='/app/anime/{episode.id}'>
+                        <ButtonPrimitive.Root class={cn('flex items-center h-4 w-full group', +episode.airTime < Date.now() && 'text-neutral-400')} href='/app/anime/{episode.id}'>
                           <div class={cn('font-medium text-nowrap text-ellipsis overflow-hidden pr-2', +episode.airTime < Date.now() && 'line-through')} title={episode.title?.userPreferred}>
                             {#if status}
                               <StatusDot variant={status} class='hidden xl:inline-flex' />
