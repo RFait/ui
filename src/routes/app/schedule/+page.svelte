@@ -3,6 +3,7 @@
   import { addMonths, endOfMonth, endOfWeek, format, isSameMonth, isToday, startOfMonth, startOfWeek, subMonths } from 'date-fns'
   import { persisted } from 'svelte-persisted-store'
   import Cross2 from 'svelte-radix/Cross2.svelte'
+  import { onMount } from 'svelte'
 
   import type { Schedule, ScheduleMedia } from '$lib/modules/anilist/queries'
   import type { ResultOf } from 'gql.tada'
@@ -18,6 +19,7 @@
   import { authAggregator, list } from '$lib/modules/auth'
   import { dragScroll } from '$lib/modules/navigate'
   import { cn, breakpoints } from '$lib/utils'
+  import { SUPPORTS } from '$lib/modules/settings'
   import ThreeDayView from './ThreeDayView.svelte'
   import DayDetailPane from './DayDetailPane.svelte'
 
@@ -149,9 +151,28 @@
     highlightUntil = Date.now() + 3000
     highlightTimer = setTimeout(() => { highlightUntil = 0 }, 3000)
   }
+
+  // Android portrait detection
+  let androidPortrait = false
+  let androidLandscape = false
+  onMount(() => {
+    const mq = window.matchMedia('(orientation: portrait)')
+    const update = () => {
+      androidPortrait = SUPPORTS.isAndroid && mq.matches
+      androidLandscape = SUPPORTS.isAndroid && !mq.matches
+    }
+    update()
+    mq.addEventListener('change', update)
+    return () => {
+      mq.removeEventListener('change', update)
+    }
+  })
+
+  // Today state for button styling
+  $: isOnToday = +midnight(selectedDate) === +midnight(new Date())
 </script>
 
-<div class='w-full h-full overflow-y-auto p-2 md:p-6 min-w-0' use:dragScroll style='scrollbar-gutter: stable both-edges;'>
+<div class='w-full h-full overflow-auto p-2 md:p-6 min-w-0' use:dragScroll style='scrollbar-gutter: stable both-edges;'>
   <div class='space-y-2 mb-4 w-full max-w-none px-2 md:px-4 mx-auto'>
     <div class='flex items-center justify-between'>
       <div>
@@ -161,47 +182,90 @@
       <!-- View mode buttons moved to the main title bar below -->
     </div>
 
-    <!-- Title bar:-->
-    <div class='grid items-center w-full grid-cols-[1fr_auto_1fr]'>
-      <!-- My list -->
-      <div class='flex items-center gap-1 text-muted-foreground justify-self-start'>
-        <Switch bind:checked={$onList} id='schedule-on-list' hideState={true} />
-        <Label for='schedule-on-list'>My list</Label>
-      </div>
-
-      <!--  Day and Month container-->
-      <div class='justify-self-center flex items-center gap-1.5'>
-        <!-- Day prev-->
-        <Button size='icon' on:click={prevDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
-          <ChevronLeft class='h-5 w-5' />
-        </Button>
-        <!-- Month prev -->
-        <Button size='icon' on:click={prevMonth} variant='outline' class='bg-transparent animated-icon h-9 w-9'>
-          <ChevronLeft class='h-6 w-6' />
-        </Button>
-        <!-- Month and Day-->
-        <div class='text-xl font-semibold px-1'>
-          {format(selectedDate, 'MMMM, EEEE do')}{selectedDate.getFullYear() !== new Date().getFullYear() ? ` ${format(selectedDate, 'yyyy')}` : ''}
+    <!-- Title bar (Android portrait specific vs default) -->
+    {#if androidPortrait}
+      <!-- Android portrait: top row with month/day and arrows; second row with My list, Today, and View toggle -->
+      <div class='w-full flex flex-col gap-2'>
+        <!-- Top: Month/Day + arrows (stable positions) -->
+        <div class='w-full grid grid-cols-[auto_1fr_auto] items-center gap-1.5'>
+          <div class='flex items-center gap-1.5 justify-self-start'>
+            <Button size='icon' on:click={prevDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
+              <ChevronLeft class='h-5 w-5' />
+            </Button>
+            <Button size='icon' on:click={prevMonth} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
+              <ChevronLeft class='h-5 w-5' />
+            </Button>
+          </div>
+          <div class='text-base font-semibold px-1 text-center justify-self-center min-w-[18ch] max-w-[60vw] truncate'>
+            {format(selectedDate, 'MMMM, EEEE do')}{selectedDate.getFullYear() !== new Date().getFullYear() ? ` ${format(selectedDate, 'yyyy')}` : ''}
+          </div>
+          <div class='flex items-center gap-1.5 justify-self-end'>
+            <Button size='icon' on:click={nextMonth} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
+              <ChevronRight class='h-5 w-5' />
+            </Button>
+            <Button size='icon' on:click={nextDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
+              <ChevronRight class='h-5 w-5' />
+            </Button>
+          </div>
         </div>
-        <!-- Month next -->
-        <Button size='icon' on:click={nextMonth} variant='outline' class='bg-transparent animated-icon h-9 w-9'>
-          <ChevronRight class='h-6 w-6' />
-        </Button>
-        <!-- Day next -->
-        <Button size='icon' on:click={nextDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
-          <ChevronRight class='h-5 w-5' />
-        </Button>
-        <!-- Today button -->
-        <Button class='ml-2' size='sm' variant='outline' on:click={goToday}>Today</Button>
+        <!-- Bottom: My list, Today, View toggle -->
+        <div class='w-full grid grid-cols-3 items-center gap-2'>
+          <div class='flex items-center gap-2 text-muted-foreground justify-self-start'>
+            <Switch bind:checked={$onList} id='schedule-on-list' hideState={true} />
+            <Label for='schedule-on-list'>My list</Label>
+          </div>
+          <div class='flex items-center justify-center'>
+            <Button size='sm' variant='outline' class={isOnToday ? 'border-white/70 bg-white/10 text-white' : 'border-white/30 text-white/90 hover:bg-white/5'} on:click={goToday}>Today</Button>
+          </div>
+          <div class='flex items-center gap-2 justify-self-end'>
+            <Button size='sm' variant='outline' class='w-[96px] justify-center' on:click={cycleViewMode}>
+              {$viewMode === 'three-day' ? 'Three-day' : 'Month'}
+            </Button>
+          </div>
+        </div>
       </div>
+    {:else}
+      <!-- Default (non-Android or landscape): left My list, center Month/Day + arrows + Today, right View toggle -->
+      <div class='grid items-center w-full grid-cols-[1fr_auto_1fr]'>
+        <!-- My list -->
+        <div class='flex items-center gap-1 text-muted-foreground justify-self-start'>
+          <Switch bind:checked={$onList} id='schedule-on-list' hideState={true} />
+          <Label for='schedule-on-list'>My list</Label>
+        </div>
 
-      <!-- View mode toggle -->
-      <div class='flex items-center justify-self-end'>
-        <Button size='sm' variant='outline' class='w-[96px] justify-center' on:click={cycleViewMode}>
-          {$viewMode === 'three-day' ? 'Three-day' : 'Month'}
-        </Button>
+        <!--  Day and Month container (stable positions) -->
+        <div class='justify-self-center grid grid-cols-[auto_1fr_auto] items-center gap-1.5'>
+          <div class='flex items-center gap-1.5 justify-self-start'>
+            <Button size='icon' on:click={prevDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
+              <ChevronLeft class='h-5 w-5' />
+            </Button>
+            <Button size='icon' on:click={prevMonth} variant='outline' class='bg-transparent animated-icon h-9 w-9'>
+              <ChevronLeft class='h-6 w-6' />
+            </Button>
+          </div>
+          <div class='text-xl font-semibold px-1 text-center justify-self-center min-w-[24ch]'>
+            {format(selectedDate, 'MMMM, EEEE do')}{selectedDate.getFullYear() !== new Date().getFullYear() ? ` ${format(selectedDate, 'yyyy')}` : ''}
+          </div>
+          <div class='flex items-center gap-1.5 justify-self-end'>
+            <Button size='icon' on:click={nextMonth} variant='outline' class='bg-transparent animated-icon h-9 w-9'>
+              <ChevronRight class='h-6 w-6' />
+            </Button>
+            <Button size='icon' on:click={nextDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
+              <ChevronRight class='h-5 w-5' />
+            </Button>
+          </div>
+          <!-- Today button remains on the right grouping in default layout -->
+          <Button class={'ml-2 col-span-3 justify-self-center hidden md:inline-flex ' + (isOnToday ? 'border-white/70 bg-white/10 text-white' : 'border-white/30 text-white/90 hover:bg-white/5')} size='sm' variant='outline' on:click={goToday}>Today</Button>
+        </div>
+
+        <!-- View mode toggle -->
+        <div class='flex items-center justify-self-end'>
+          <Button size='sm' variant='outline' class='w-[96px] justify-center' on:click={cycleViewMode}>
+            {$viewMode === 'three-day' ? 'Three-day' : 'Month'}
+          </Button>
+        </div>
       </div>
-    </div>
+    {/if}
   </div>
 
   {#if $query.fetching}
@@ -222,19 +286,38 @@
     </div>
   {:else}
     {#if $viewMode === 'three-day'}
-      <div class='grid w-full gap-4 mx-auto' style='grid-template-columns: 1fr 1fr;'>
-        <ThreeDayView
-          {prevDate}
-          currentDate={selectedDate}
-          {nextDate}
-          {prevEpisodes}
-          {currentEpisodes}
-          {nextEpisodes}
-          onSelectDate={(d) => selectedDate = d}
-          onSelectEpisode={highlightEpisode}
-        />
-        <DayDetailPane episodes={currentEpisodes} {selectedEpisode} {highlightUntil} onSelectEpisode={(ep) => selectedEpisode = ep} />
-      </div>
+      {#if androidPortrait}
+        <!-- Android portrait: stack thumbnails (detail pane) on top, list (three-day) under -->
+        <div class='flex flex-col w-full gap-4 mx-auto'>
+          <DayDetailPane episodes={currentEpisodes} {selectedEpisode} {highlightUntil} onSelectEpisode={(ep) => selectedEpisode = ep} androidPortrait={true} />
+          <ThreeDayView
+            {prevDate}
+            currentDate={selectedDate}
+            {nextDate}
+            {prevEpisodes}
+            {currentEpisodes}
+            {nextEpisodes}
+            onSelectDate={(d) => selectedDate = d}
+            onSelectEpisode={highlightEpisode}
+            androidPortrait={true}
+          />
+        </div>
+      {:else}
+        <div class='grid w-full gap-4 mx-auto min-w-[1000px]' style='grid-template-columns: 1fr 1fr;'>
+          <ThreeDayView
+            {prevDate}
+            currentDate={selectedDate}
+            {nextDate}
+            {prevEpisodes}
+            {currentEpisodes}
+            {nextEpisodes}
+            onSelectDate={(d) => selectedDate = d}
+            onSelectEpisode={highlightEpisode}
+            androidLandscape={androidLandscape}
+          />
+          <DayDetailPane episodes={currentEpisodes} {selectedEpisode} {highlightUntil} onSelectEpisode={(ep) => selectedEpisode = ep} androidLandscape={androidLandscape} />
+        </div>
+      {/if}
     {:else if $viewMode === 'month'}
       <div class='grid grid-cols-7 border rounded-lg [&>*:not(:nth-child(7n+1))]:border-l [&>*:nth-last-child(n+8)]:border-b [&>*:nth-child(-n+7)]:border-b w-full mx-auto'>
         <div class='text-center py-2'>Mon</div>

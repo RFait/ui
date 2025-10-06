@@ -1,7 +1,7 @@
 <script lang="ts">
   import { format } from 'date-fns'
   import { Button as ButtonPrimitive } from 'bits-ui'
-  import { onDestroy, tick } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
   import StatusDot from '$lib/components/StatusDot.svelte'
   import { list as listStatus } from '$lib/modules/auth'
   import { cn } from '$lib/utils'
@@ -10,11 +10,23 @@
   export let selectedEpisode: any | undefined
   export let onSelectEpisode: (ep: any) => void
   export let highlightUntil: number = 0
+  export let androidPortrait: boolean = false
+  export let androidLandscape: boolean = false
   let localHighlightUntil = 0
   let prevHighlightUntil = 0
   let localTimer: any
   let shortenedOnce = false
   let listEl: HTMLDivElement | null = null
+
+  // Layout breakpoint detection for 1600px
+  let wide1600 = false
+  onMount(() => {
+    const mq = window.matchMedia('(min-width: 1600px)')
+    const update = () => { wide1600 = mq.matches }
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  })
 
   function coverSrcset(ci?: any) {
     const list: string[] = []
@@ -63,7 +75,7 @@
 </script>
 
 <div class="flex flex-col h-full rounded-lg overflow-hidden min-h-0">
-  <div class="flex-1 overflow-y-auto p-3 grid grid-cols-2 gap-3" bind:this={listEl}
+  <div class={cn('flex-1 overflow-y-auto p-3 grid grid-cols-2', androidLandscape ? 'gap-2' : 'gap-3')} bind:this={listEl}
     style="content-visibility:auto; contain-intrinsic-size: 640px 400px;"
     on:scroll|passive={onScrollPane}>
     {#if episodes.length === 0}
@@ -79,36 +91,58 @@
           )}
           on:click={() => onSelectEpisode(ep)}>
           {#if ep.bannerImage}
-            <img src={ep.bannerImage} alt={ep.title?.userPreferred} class="w-full h-48 object-cover" loading="lazy" decoding="async" sizes={coverSizes} />
+            <img src={ep.bannerImage} alt={ep.title?.userPreferred} class={cn('w-full object-cover', androidLandscape ? 'h-44' : 'h-48')} loading="lazy" decoding="async" sizes={coverSizes} />
           {:else if ep.coverImage?.extraLarge}
-            <img src={ep.coverImage.extraLarge} alt={ep.title?.userPreferred} class="w-full h-48 object-cover" loading="lazy" decoding="async" srcset={coverSrcset(ep.coverImage)} sizes={coverSizes} />
+            <img src={ep.coverImage.extraLarge} alt={ep.title?.userPreferred} class={cn('w-full object-cover', androidLandscape ? 'h-44' : 'h-48')} loading="lazy" decoding="async" srcset={coverSrcset(ep.coverImage)} sizes={coverSizes} />
           {:else if ep.coverImage?.large}
-            <img src={ep.coverImage.large} alt={ep.title?.userPreferred} class="w-full h-48 object-cover" loading="lazy" decoding="async" srcset={coverSrcset(ep.coverImage)} sizes={coverSizes} />
+            <img src={ep.coverImage.large} alt={ep.title?.userPreferred} class={cn('w-full object-cover', androidLandscape ? 'h-44' : 'h-48')} loading="lazy" decoding="async" srcset={coverSrcset(ep.coverImage)} sizes={coverSizes} />
           {:else if ep.coverImage?.medium}
-            <img src={ep.coverImage.medium} alt={ep.title?.userPreferred} class="w-full h-48 object-cover" loading="lazy" decoding="async" srcset={coverSrcset(ep.coverImage)} sizes={coverSizes} />
+            <img src={ep.coverImage.medium} alt={ep.title?.userPreferred} class={cn('w-full object-cover', androidLandscape ? 'h-44' : 'h-48')} loading="lazy" decoding="async" srcset={coverSrcset(ep.coverImage)} sizes={coverSizes} />
           {:else}
             <div class="w-full h-48 bg-muted" />
           {/if}
           <div class="p-3">
+            <!-- Title row -->
             <div class="flex items-center gap-2">
               {#if status}
                 <StatusDot variant={status} class="hidden xl:inline-flex" />
               {/if}
-              <div class={cn('font-semibold text-ellipsis overflow-hidden whitespace-nowrap', +ep.airTime < Date.now() && 'line-through')} title={ep.title?.userPreferred}>{ep.title?.userPreferred}</div>
+              <div class={cn('font-semibold text-ellipsis overflow-hidden whitespace-nowrap', androidLandscape ? 'text-sm' : '', +ep.airTime < Date.now() && 'line-through')} title={ep.title?.userPreferred}>{ep.title?.userPreferred}</div>
             </div>
-            <div class="mt-2 flex items-center justify-between gap-3">
-              <div class="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
-                {#if ep.format}<span>{ep.format}</span>{/if}
-                {#if ep.duration}<span>• Length: {ep.duration}m</span>{/if}
-                {#if ep.episodes}<span>• Episodes: {ep.episodes}</span>{/if}
+
+            {#if wide1600}
+              <!-- Wide (>=1600px): keep existing inline meta + chips -->
+              <div class="mt-2 flex items-center justify-between gap-3">
+                <div class="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+                  {#if ep.format}<span>{ep.format}</span>{/if}
+                  {#if ep.duration}<span>• Length: {ep.duration}m</span>{/if}
+                  {#if ep.episodes}<span>• Episodes: {ep.episodes}</span>{/if}
+                </div>
+                <div class={cn('flex items-center gap-3', androidPortrait ? 'flex-wrap' : '')}>
+                  <div class={cn('rounded-md bg-white/80 text-black border font-semibold', androidPortrait ? 'px-1.5 py-0.5 text-[12px]' : androidLandscape ? 'px-2 py-0.5 text-sm' : 'px-2 py-1 text-base md:text-lg')}>Ep {ep.episode}</div>
+                  <div class={cn('rounded-md bg-white/80 text-black border font-semibold tabular-nums', androidPortrait ? 'px-1.5 py-0.5 text-[12px]' : androidLandscape ? 'px-2 py-0.5 text-sm' : 'px-2 py-1')}>
+                    {format(ep.airTime, 'h:mm')} <span class="text-xs align-top uppercase">{format(ep.airTime, 'a')}</span>
+                  </div>
+                </div>
               </div>
-              <div class="flex items-center gap-3">
-                <div class="px-2 py-1 rounded-md bg-white/80 text-black border text-base md:text-lg font-semibold whitespace-nowrap">Ep {ep.episode}</div>
-                <div class="px-2 py-1 rounded-md bg-white/80 text-black border font-semibold tabular-nums whitespace-nowrap">
+            {:else}
+              <!-- Compact (<1600px): meta on top (single line), chips below side-by-side -->
+              <div class="mt-2 text-xs text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">
+                {#if ep.format}<span>{ep.format}</span>{/if}
+                {#if ep.episodes}
+                  <span class="ml-2">• {ep.episodes}eps</span>
+                {/if}
+                {#if ep.duration}
+                  <span class="ml-2">• {ep.duration}m</span>
+                {/if}
+              </div>
+              <div class={cn('mt-2 flex items-center gap-3', androidPortrait ? 'flex-wrap' : '')}>
+                <div class={cn('rounded-md bg-white/80 text-black border font-semibold', androidPortrait ? 'px-1.5 py-0.5 text-[12px]' : androidLandscape ? 'px-2 py-0.5 text-sm' : 'px-2 py-1 text-base')}>Ep {ep.episode}</div>
+                <div class={cn('rounded-md bg-white/80 text-black border font-semibold tabular-nums', androidPortrait ? 'px-1.5 py-0.5 text-[12px]' : androidLandscape ? 'px-2 py-0.5 text-sm' : 'px-2 py-1')}>
                   {format(ep.airTime, 'h:mm')} <span class="text-xs align-top uppercase">{format(ep.airTime, 'a')}</span>
                 </div>
               </div>
-            </div>
+            {/if}
           </div>
         </ButtonPrimitive.Root>
       {/each}
