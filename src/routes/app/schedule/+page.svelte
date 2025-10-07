@@ -21,15 +21,14 @@
   import { cn, breakpoints } from '$lib/utils'
   import { SUPPORTS } from '$lib/modules/settings'
   import ThreeDayView from './ThreeDayView.svelte'
-  import DayDetailPane from './DayDetailPane.svelte'
 
   const onList = persisted('schedule-on-list', true)
   const viewMode = persisted<'three-day' | 'month'>('schedule-view-mode', 'three-day')
 
   $: query = authAggregator.schedule($onList || null)
 
-  // Month grid state (existing view)
   let now = new Date()
+  
 
   $: firstDay = startOfWeek(startOfMonth(now), { weekStartsOn: 1 })
   $: lastDay = endOfWeek(endOfMonth(now), { weekStartsOn: 1 })
@@ -43,9 +42,7 @@
   }
 
   function listDays (firstDay: Date, lastDay: Date) {
-    // create an array of days with start and end time for given day
     const days = []
-    // eslint-disable-next-line no-unmodified-loop-condition
     for (let start = new Date(firstDay); start <= lastDay; start.setDate(start.getDate() + 1)) {
       days.push({ date: new Date(start), number: start.getDate() })
     }
@@ -57,8 +54,15 @@
   interface DayAirTimes { day: { date: Date, number: number }, episodes: Array<ResultOf<typeof ScheduleMedia> & { episode: number, airTime: Date }> }
 
   function aggregate (data: ResultOf<typeof Schedule>, dayList: Array<{ date: Date, number: number }>) {
-    // join media from all queries into single list, de-duplicate it, and make sure it's not dropped
-    const mediaList = [...data.curr1?.media ?? [], ...data.curr2?.media ?? [], ...data.curr3?.media ?? [], ...data.residue?.media ?? [], ...data.next1?.media ?? [], ...data.next2?.media ?? []]
+    // join media from all queries into single list, making sure it's not dropped
+    const mediaList = [
+      ...data.curr1?.media ?? [],
+      ...data.curr2?.media ?? [],
+      ...data.curr3?.media ?? [],
+      ...data.residue?.media ?? [],
+      ...data.next1?.media ?? [],
+      ...data.next2?.media ?? []
+    ]
       .filter((v, i, a) => v != null
         && a.findIndex(s => s?.id === v.id) === i
         && list(v) !== 'DROPPED'
@@ -84,7 +88,7 @@
     return Object.values(dayMap) as DayAirTimes[]
   }
 
-  // very stupid fix, for a very stupid bug
+  // Workaround: alias list() to avoid template/shadowing issues
   const _list = list
 
   // Three-day view state
@@ -97,6 +101,9 @@
   function prevDay () { selectedDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() - 1) }
   function nextDay () { selectedDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1) }
   function goToday () { selectedDate = new Date() }
+
+  // Pass typed handler to ThreeDayView to avoid implicit-any in template
+  function setSelectedDate(d: Date) { selectedDate = d }
 
   function cycleViewMode() {
     $viewMode = $viewMode === 'three-day' ? 'month' : 'three-day'
@@ -168,8 +175,10 @@
     }
   })
 
-  // Today state for button styling
+
   $: isOnToday = +midnight(selectedDate) === +midnight(new Date())
+
+
 </script>
 
 <div class='w-full h-full overflow-auto p-2 md:p-6 min-w-0' use:dragScroll style='scrollbar-gutter: stable both-edges;'>
@@ -179,14 +188,12 @@
         <h2 class='text-2xl font-bold'>Airing Calendar</h2>
         <p class='text-muted-foreground'>Find what’s airing now and next.</p>
       </div>
-      <!-- View mode buttons moved to the main title bar below -->
+      
     </div>
 
-    <!-- Title bar (Android portrait specific vs default) -->
+    <!-- Header adapts for Android portrait -->
     {#if androidPortrait}
-      <!-- Android portrait: top row with month/day and arrows; second row with My list, Today, and View toggle -->
       <div class='w-full flex flex-col gap-2'>
-        <!-- Top: Month/Day + arrows (stable positions) -->
         <div class='w-full grid grid-cols-[auto_1fr_auto] items-center gap-1.5'>
           <div class='flex items-center gap-1.5 justify-self-start'>
             <Button size='icon' on:click={prevDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
@@ -208,7 +215,6 @@
             </Button>
           </div>
         </div>
-        <!-- Bottom: My list, Today, View toggle -->
         <div class='w-full grid grid-cols-3 items-center gap-2'>
           <div class='flex items-center gap-2 text-muted-foreground justify-self-start'>
             <Switch bind:checked={$onList} id='schedule-on-list' hideState={true} />
@@ -218,14 +224,13 @@
             <Button size='sm' variant='outline' class={isOnToday ? 'border-white/70 bg-white/10 text-white' : 'border-white/30 text-white/90 hover:bg-white/5'} on:click={goToday}>Today</Button>
           </div>
           <div class='flex items-center gap-2 justify-self-end'>
-            <Button size='sm' variant='outline' class='w-[96px] justify-center' on:click={cycleViewMode}>
+            <Button size='sm' variant='outline' class='w-[6em] justify-center' on:click={cycleViewMode}>
               {$viewMode === 'three-day' ? 'Three-day' : 'Month'}
             </Button>
           </div>
         </div>
       </div>
     {:else}
-      <!-- Default (non-Android or landscape): left My list, center Month/Day + arrows + Today, right View toggle -->
       <div class='grid items-center w-full grid-cols-[1fr_auto_1fr]'>
         <!-- My list -->
         <div class='flex items-center gap-1 text-muted-foreground justify-self-start'>
@@ -233,7 +238,6 @@
           <Label for='schedule-on-list'>My list</Label>
         </div>
 
-        <!--  Day and Month container (stable positions) -->
         <div class='justify-self-center grid grid-cols-[auto_1fr_auto] items-center gap-1.5'>
           <div class='flex items-center gap-1.5 justify-self-start'>
             <Button size='icon' on:click={prevDay} variant='outline' class='bg-transparent animated-icon h-7 w-7'>
@@ -254,13 +258,12 @@
               <ChevronRight class='h-5 w-5' />
             </Button>
           </div>
-          <!-- Today button remains on the right grouping in default layout -->
           <Button class={'ml-2 col-span-3 justify-self-center hidden md:inline-flex ' + (isOnToday ? 'border-white/70 bg-white/10 text-white' : 'border-white/30 text-white/90 hover:bg-white/5')} size='sm' variant='outline' on:click={goToday}>Today</Button>
         </div>
 
         <!-- View mode toggle -->
         <div class='flex items-center justify-self-end'>
-          <Button size='sm' variant='outline' class='w-[96px] justify-center' on:click={cycleViewMode}>
+          <Button size='sm' variant='outline' class='w-[6em] justify-center' on:click={cycleViewMode}>
             {$viewMode === 'three-day' ? 'Three-day' : 'Month'}
           </Button>
         </div>
@@ -269,9 +272,9 @@
   </div>
 
   {#if $query.fetching}
-    <div class='p-5 flex items-center justify-center h-96 w-full max-w-[1800px]'>Loading…</div>
+    <div class='p-5 flex items-center justify-center h-96 w-full max-w-[112.5em]'>Loading…</div>
   {:else if $query.error}
-    <div class='p-5 flex items-center justify-center h-96 w-full max-w-[1800px]'>
+    <div class='p-5 flex items-center justify-center h-96 w-full max-w-[112.5em]'>
       <div>
         <div class='mb-1 font-bold text-4xl text-center '>
           Ooops!
@@ -286,38 +289,20 @@
     </div>
   {:else}
     {#if $viewMode === 'three-day'}
-      {#if androidPortrait}
-        <!-- Android portrait: stack thumbnails (detail pane) on top, list (three-day) under -->
-        <div class='flex flex-col w-full gap-4 mx-auto'>
-          <DayDetailPane episodes={currentEpisodes} {selectedEpisode} {highlightUntil} onSelectEpisode={(ep) => selectedEpisode = ep} androidPortrait={true} />
-          <ThreeDayView
-            {prevDate}
-            currentDate={selectedDate}
-            {nextDate}
-            {prevEpisodes}
-            {currentEpisodes}
-            {nextEpisodes}
-            onSelectDate={(d) => selectedDate = d}
-            onSelectEpisode={highlightEpisode}
-            androidPortrait={true}
-          />
-        </div>
-      {:else}
-        <div class='grid w-full gap-4 mx-auto min-w-[1000px]' style='grid-template-columns: 1fr 1fr;'>
-          <ThreeDayView
-            {prevDate}
-            currentDate={selectedDate}
-            {nextDate}
-            {prevEpisodes}
-            {currentEpisodes}
-            {nextEpisodes}
-            onSelectDate={(d) => selectedDate = d}
-            onSelectEpisode={highlightEpisode}
-            androidLandscape={androidLandscape}
-          />
-          <DayDetailPane episodes={currentEpisodes} {selectedEpisode} {highlightUntil} onSelectEpisode={(ep) => selectedEpisode = ep} androidLandscape={androidLandscape} />
-        </div>
-      {/if}
+      <ThreeDayView
+        {prevDate}
+        currentDate={selectedDate}
+        {nextDate}
+        {prevEpisodes}
+        {currentEpisodes}
+        {nextEpisodes}
+        onSelectDate={setSelectedDate}
+        onSelectEpisode={highlightEpisode}
+        {androidPortrait}
+        {androidLandscape}
+        {selectedEpisode}
+        {highlightUntil}
+      />
     {:else if $viewMode === 'month'}
       <div class='grid grid-cols-7 border rounded-lg [&>*:not(:nth-child(7n+1))]:border-l [&>*:nth-last-child(n+8)]:border-b [&>*:nth-child(-n+7)]:border-b w-full mx-auto'>
         <div class='text-center py-2'>Mon</div>

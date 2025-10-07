@@ -243,6 +243,11 @@ export const ScheduleMedia = gql(`
     format,
     duration,
     episodes,
+    startDate {
+      year,
+      month,
+      day
+    },
     aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) {
       n: nodes {
         a: airingAt,
