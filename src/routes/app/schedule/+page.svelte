@@ -54,7 +54,7 @@
   interface DayAirTimes { day: { date: Date, number: number }, episodes: Array<ResultOf<typeof ScheduleMedia> & { episode: number, airTime: Date }> }
 
   function aggregate (data: ResultOf<typeof Schedule>, dayList: Array<{ date: Date, number: number }>) {
-    // join media from all queries into single list, making sure it's not dropped
+    // join media from all queries into single list, de-duplicate it, and make sure it's not dropped
     const mediaList = [
       ...data.curr1?.media ?? [],
       ...data.curr2?.media ?? [],
@@ -88,7 +88,7 @@
     return Object.values(dayMap) as DayAirTimes[]
   }
 
-  // Workaround: alias list() to avoid template/shadowing issues
+  // very stupid fix, for a very stupid bug
   const _list = list
 
   // Three-day view state
@@ -102,7 +102,6 @@
   function nextDay () { selectedDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1) }
   function goToday () { selectedDate = new Date() }
 
-  // Pass typed handler to ThreeDayView to avoid implicit-any in template
   function setSelectedDate(d: Date) { selectedDate = d }
 
   function cycleViewMode() {
@@ -159,7 +158,7 @@
     highlightTimer = setTimeout(() => { highlightUntil = 0 }, 3000)
   }
 
-  // Android portrait detection
+  // Android portrait/landscape detection
   let androidPortrait = false
   let androidLandscape = false
   onMount(() => {
